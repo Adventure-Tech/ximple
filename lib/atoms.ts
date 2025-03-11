@@ -159,7 +159,7 @@ export function atom<T, S = T, U = T>({
 export function useAtom<T, S = T>(atom: Atom<T, S>): [T, (value: S) => void] {
   const [data, setData] = useState<T>(atom.subject.value);
 
-  const update = useCallback((value: S) => atom.update(value), [atom]);
+  const update = useCallback((value: S) => atom.update(value), []);
 
   useEffect(() => {
     return atom.subject.subscribe(setData);
