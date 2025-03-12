@@ -6,6 +6,8 @@ export type Atom<T, S = T> = {
   update: (value: S) => Promise<void>;
 };
 
+type Concurrency = "synchronous" | ConcurrencyNoSync;
+type ConcurrencyNoSync = "queue" | "throttle" | "debounce";
 export function atom<T, S = T, U = T>({
   initialValue,
   persistKey,
@@ -14,7 +16,70 @@ export function atom<T, S = T, U = T>({
   transformOnDeserialize,
   transformOnSerialize,
   equalityCompareFn,
-  concurrency = "queue",
+  concurrency,
+  concurrencyTime,
+}: {
+  initialValue: T;
+  persistKey?: string;
+  update?: (state: T, value: S) => T;
+  appVersion?: string;
+  transformOnSerialize?: (obj: T) => U | Promise<U>;
+  transformOnDeserialize?: (obj: U) => T | Promise<T>;
+  equalityCompareFn?: (newValue: T, oldValue?: T) => boolean;
+  concurrency: "synchronous";
+  concurrencyTime?: number;
+}): Atom<T, S>;
+export function atom<T, S = T, U = T>({
+  initialValue,
+  persistKey,
+  update,
+  appVersion,
+  transformOnDeserialize,
+  transformOnSerialize,
+  equalityCompareFn,
+  concurrency,
+  concurrencyTime,
+}: {
+  initialValue: T;
+  persistKey?: string;
+  update?: (state: T, value: S) => Promise<T> | T;
+  appVersion?: string;
+  transformOnSerialize?: (obj: T) => U | Promise<U>;
+  transformOnDeserialize?: (obj: U) => T | Promise<T>;
+  equalityCompareFn?: (newValue: T, oldValue?: T) => boolean;
+  concurrency: ConcurrencyNoSync;
+  concurrencyTime?: number;
+}): Atom<T, S>;
+export function atom<T, S = T, U = T>({
+  initialValue,
+  persistKey,
+  update,
+  appVersion,
+  transformOnDeserialize,
+  transformOnSerialize,
+  equalityCompareFn,
+  concurrency,
+  concurrencyTime,
+}: {
+  initialValue: T;
+  persistKey?: string;
+  update?: (state: T, value: S) => T;
+  appVersion?: string;
+  transformOnSerialize?: (obj: T) => U | Promise<U>;
+  transformOnDeserialize?: (obj: U) => T | Promise<T>;
+  equalityCompareFn?: (newValue: T, oldValue?: T) => boolean;
+  concurrency?: undefined;
+  concurrencyTime?: number;
+}): Atom<T, S>;
+export function atom<T, S = T, U = T>({
+  initialValue,
+  persistKey,
+  update,
+  appVersion,
+  transformOnDeserialize,
+  transformOnSerialize,
+  equalityCompareFn,
+  concurrency = "synchronous",
   concurrencyTime = Number.MAX_SAFE_INTEGER,
 }: {
   initialValue: T;
@@ -24,7 +89,7 @@ export function atom<T, S = T, U = T>({
   transformOnSerialize?: (obj: T) => U | Promise<U>;
   transformOnDeserialize?: (obj: U) => T | Promise<T>;
   equalityCompareFn?: (newValue: T, oldValue?: T) => boolean;
-  concurrency?: "queue" | "throttle" | "debounce";
+  concurrency?: Concurrency;
   concurrencyTime?: number;
 }): Atom<T, S> {
   const subject = new BehaviorSubject<T>(initialValue, {
@@ -50,10 +115,11 @@ export function atom<T, S = T, U = T>({
           initPersistanceIsRunning = false;
           await Promise.all(
             updatesWhileDeserializing.map(async (updatedValue) => {
-              const newValue = update
-                ? await update(subject.value, updatedValue)
-                : (updatedValue as unknown as T);
-              subject.next(newValue);
+              const newValue = !update ? (updatedValue as unknown as T) :
+                concurrency === "synchronous" ? update(subject.value, updatedValue) :
+                await update(subject.value, updatedValue);
+
+              subject.next(newValue as T);
             }),
           );
         });
@@ -86,7 +152,8 @@ export function atom<T, S = T, U = T>({
 
   let idgen = 0;
   // Handle updates to the atom, taking in to account concurrency rules
-  // Default is queue, which means all updates are processed in order
+  // Default is synchronous, which means every update is processed immediately without queing
+  // Queue means all updates are processed in order
   // Throttle means only the first update is processed, and the rest are ignored
   // Debounce means only the last update is processed, and the rest are ignored
   const updateFunction = async (value: S) => {
@@ -94,6 +161,7 @@ export function atom<T, S = T, U = T>({
       updatesWhileDeserializing.push(value as S);
       return;
     }
+
     if (
       updateFunction.queue.length > 0 &&
       concurrency === "throttle" &&
@@ -121,7 +189,10 @@ export function atom<T, S = T, U = T>({
       skip: false,
       timestamp: Date.now(),
     };
-    updateFunction.queue.push(queueItem);
+
+    if(concurrency !== "synchronous") {
+      updateFunction.queue.push(queueItem);
+    }
 
     if (concurrency === "queue") {
       await Promise.all(
@@ -129,20 +200,22 @@ export function atom<T, S = T, U = T>({
       );
     }
 
-    const newValue = update
-      ? await update(subject.value, value)
-      : (value as unknown as T);
+    const newValue = !update ? (value as unknown as T) :
+      concurrency === "synchronous" ? update(subject.value, value) :
+      await update(subject.value, value);
 
     if (concurrency === "debounce" && queueItem.skip) {
       return;
     }
 
-    subject.next(newValue);
+    subject.next(newValue as T);
 
-    updateFunction.queue.splice(
-      updateFunction.queue.findIndex((x) => x.id === id),
-      1,
-    );
+    if(concurrency !== "synchronous") {
+      updateFunction.queue.splice(
+        updateFunction.queue.findIndex((x) => x.id === id),
+        1,
+      );
+    }
     resolver(newValue);
   };
 
