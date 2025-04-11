@@ -11,6 +11,7 @@ type ConcurrencyNoSync = "queue" | "throttle" | "debounce";
 export function atom<T, S = T, U = T>({
   initialValue,
   persistKey,
+  persistLayer,
   update,
   appVersion,
   transformOnDeserialize,
@@ -21,6 +22,7 @@ export function atom<T, S = T, U = T>({
 }: {
   initialValue: T;
   persistKey?: string;
+  persistLayer?: "local" | "session";
   update?: (state: T, value: S) => T;
   appVersion?: string;
   transformOnSerialize?: (obj: T) => U | Promise<U>;
@@ -32,6 +34,7 @@ export function atom<T, S = T, U = T>({
 export function atom<T, S = T, U = T>({
   initialValue,
   persistKey,
+  persistLayer,
   update,
   appVersion,
   transformOnDeserialize,
@@ -42,6 +45,7 @@ export function atom<T, S = T, U = T>({
 }: {
   initialValue: T;
   persistKey?: string;
+  persistLayer?: "local" | "session";
   update?: (state: T, value: S) => Promise<T> | T;
   appVersion?: string;
   transformOnSerialize?: (obj: T) => U | Promise<U>;
@@ -53,6 +57,7 @@ export function atom<T, S = T, U = T>({
 export function atom<T, S = T, U = T>({
   initialValue,
   persistKey,
+  persistLayer,
   update,
   appVersion,
   transformOnDeserialize,
@@ -63,6 +68,7 @@ export function atom<T, S = T, U = T>({
 }: {
   initialValue: T;
   persistKey?: string;
+  persistLayer?: "local" | "session";
   update?: (state: T, value: S) => T;
   appVersion?: string;
   transformOnSerialize?: (obj: T) => U | Promise<U>;
@@ -74,6 +80,7 @@ export function atom<T, S = T, U = T>({
 export function atom<T, S = T, U = T>({
   initialValue,
   persistKey,
+  persistLayer = "local",
   update,
   appVersion,
   transformOnDeserialize,
@@ -84,6 +91,7 @@ export function atom<T, S = T, U = T>({
 }: {
   initialValue: T;
   persistKey?: string;
+  persistLayer?: "local" | "session";
   update?: (state: T, value: S) => Promise<T> | T;
   appVersion?: string;
   transformOnSerialize?: (obj: T) => U | Promise<U>;
@@ -100,12 +108,13 @@ export function atom<T, S = T, U = T>({
   let initPersistanceIsRunning = false;
 
   if (persistKey) {
+    const storage = persistLayer === 'local' ? localStorage : sessionStorage;
     // Load from storage after the atom is created
-    const storedJson = JSON.parse(localStorage.getItem(persistKey) ?? "{}");
+    const storedJson = JSON.parse(storage.getItem(persistKey) ?? "{}");
 
     // Remove from storage if version has been updated
     if (storedJson.version !== appVersion) {
-      localStorage.removeItem(persistKey);
+      storage.removeItem(persistKey);
     } else if (transformOnDeserialize && storedJson.data) {
       let deserialized = transformOnDeserialize(storedJson.data);
       if (isPromise(deserialized)) {
@@ -141,7 +150,7 @@ export function atom<T, S = T, U = T>({
             data = await data;
           }
         }
-        localStorage.setItem(
+        storage.setItem(
           persistKey,
           JSON.stringify({ data, version: appVersion }),
         );
